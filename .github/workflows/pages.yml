@@ -1,0 +1,43 @@
+name: Deploy the legacy repository address
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate the signed release
+        run: |
+          test -f index.html
+          if find . -type f -not -path './.git/*' | grep -E '\.(key|pem)$|/(AGENTS|CLAUDE|HANDOFF|MEMORY)\.md$'; then exit 1; fi
+          if grep -R --exclude-dir=.git -l -E -- '-----BEGIN (RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY-----' .; then exit 1; fi
+          python3 verify-repo.py .
+      - name: Prepare the site under the legacy path
+        run: |
+          mkdir -p _site/OPNsense-repo
+          for f in index.html kazuha.pub kazuha.conf kazuhahub.pub kazuhahub.conf SHA256SUMS.txt release.json release.sig client.sh check-upgrade.py verify-repo.py; do
+            [ ! -f "$f" ] || cp "$f" _site/OPNsense-repo/
+          done
+          cp -RL repo _site/OPNsense-repo/
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - uses: actions/deploy-pages@v4
+        id: deployment
